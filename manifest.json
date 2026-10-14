@@ -1,0 +1,18 @@
+{
+  "name": "핏트래커 - 체중 & 운동량 기록 트래커",
+  "short_name": "핏트래커",
+  "description": "인바디 체성분 기반 목표 설정 및 일일 소비 칼로리 누적 계산기",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

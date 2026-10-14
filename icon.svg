@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#0d9488" />
+    </linearGradient>
+    <linearGradient id="flameGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb7185" />
+      <stop offset="100%" stop-color="#f43f5e" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Rounded App Icon Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  
+  <!-- Subtle Glow -->
+  <circle cx="256" cy="256" r="180" fill="#ffffff" opacity="0.12" />
+
+  <!-- Lightning / Pulse Energy Symbol -->
+  <path d="M280 64L140 288h120l-40 160 160-224H260l40-160z" fill="#ffffff" filter="drop-shadow(0px 8px 16px rgba(0,0,0,0.15))" />
+</svg>
