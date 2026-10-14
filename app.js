@@ -103,6 +103,22 @@ const STORAGE_KEYS = {
   LOGS: 'fitness_tracker_daily_logs'
 };
 
+// --- Firebase Cloud Sync Config ---
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCDOJKwMguxpg9bWiLTRFK6NjBSRXEwIV8",
+  authDomain: "fit-tracker-b89cc.firebaseapp.com",
+  projectId: "fit-tracker-b89cc",
+  storageBucket: "fit-tracker-b89cc.firebasestorage.app",
+  messagingSenderId: "650959072973",
+  appId: "1:650959072973:web:da61aeb9114b9a52d10384",
+  measurementId: "G-V5C71DDY52"
+};
+
+let db = null;
+let cloudDocRef = null;
+let isApplyingCloudUpdate = false;
+let cloudSaveTimeout = null;
+
 // State Object
 let state = {
   currentDate: getTodayString(),
@@ -186,6 +202,141 @@ function saveData() {
   localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(state.profile));
   localStorage.setItem(STORAGE_KEYS.POOL, JSON.stringify(state.pool));
   localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(state.dailyLogs));
+  syncToCloud();
+}
+
+// --- Firebase Realtime Sync Implementation ---
+function updateSyncUI(status, message) {
+  const badge = document.getElementById('syncStatusBadge');
+  const dot = document.getElementById('syncStatusDot');
+  const text = document.getElementById('syncStatusText');
+  const textMobile = document.getElementById('syncStatusTextMobile');
+  if (!badge || !dot || !text) return;
+
+  if (status === 'syncing') {
+    badge.className = 'flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs transition cursor-pointer hover:bg-emerald-100';
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+    text.textContent = message || '실시간 동기화';
+    if (textMobile) textMobile.textContent = '동기화';
+    badge.title = 'Mac & 모바일 실시간 동기화 연결됨 (클릭하여 상태 확인)';
+  } else if (status === 'saving') {
+    badge.className = 'flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs transition cursor-pointer';
+    dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-ping';
+    text.textContent = '클라우드 저장 중...';
+    if (textMobile) textMobile.textContent = '저장중';
+    badge.title = '변경사항을 클라우드에 저장하는 중...';
+  } else if (status === 'error') {
+    badge.className = 'flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200 shadow-2xs transition cursor-pointer hover:bg-slate-200';
+    dot.className = 'w-2 h-2 rounded-full bg-slate-400';
+    text.textContent = message || '로컬 저장 모드';
+    if (textMobile) textMobile.textContent = '로컬';
+    badge.title = '클라우드 연결 대기 중 (현재 로컬에 저장됨)';
+  }
+}
+
+function initFirebaseSync() {
+  const badge = document.getElementById('syncStatusBadge');
+  if (badge) {
+    badge.addEventListener('click', () => {
+      if (cloudDocRef) {
+        showToast('☁️ Mac & 모바일 실시간 클라우드 동기화가 활성화되어 있습니다.');
+      } else {
+        showToast('로컬 저장 모드로 실행 중입니다.');
+      }
+    });
+  }
+
+  try {
+    if (typeof firebase === 'undefined') {
+      console.warn('Firebase SDK not loaded.');
+      updateSyncUI('error', '로컬 저장 모드');
+      return;
+    }
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    db = firebase.firestore();
+    cloudDocRef = db.collection('fit_tracker').doc('main_user_data');
+
+    // Realtime Listener for Mac & Mobile cross-device sync
+    cloudDocRef.onSnapshot((doc) => {
+      if (doc.exists) {
+        const cloudData = doc.data();
+        if (isApplyingCloudUpdate) return;
+
+        let hasNewData = false;
+        if (cloudData.profile && JSON.stringify(cloudData.profile) !== JSON.stringify(state.profile)) {
+          state.profile = cloudData.profile;
+          hasNewData = true;
+        }
+        if (cloudData.pool && JSON.stringify(cloudData.pool) !== JSON.stringify(state.pool)) {
+          state.pool = cloudData.pool;
+          hasNewData = true;
+        }
+        if (cloudData.dailyLogs && JSON.stringify(cloudData.dailyLogs) !== JSON.stringify(state.dailyLogs)) {
+          state.dailyLogs = cloudData.dailyLogs;
+          hasNewData = true;
+        }
+
+        if (hasNewData) {
+          // Cache to localStorage
+          localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(state.profile));
+          localStorage.setItem(STORAGE_KEYS.POOL, JSON.stringify(state.pool));
+          localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(state.dailyLogs));
+
+          // Re-render UI components smoothly
+          renderExercisePool();
+          renderTodayWorkoutList();
+          updateKpiAndSummary();
+          updateWeightTrendChart();
+          showToast('☁️ 실시간 클라우드 동기화 완료!');
+        }
+        updateSyncUI('syncing', '실시간 동기화');
+      } else {
+        // First-time setup: push initial data to Firestore
+        syncToCloud(true);
+        updateSyncUI('syncing', '실시간 동기화');
+      }
+    }, (error) => {
+      console.warn('Firestore onSnapshot error:', error);
+      updateSyncUI('error', '로컬 저장 모드');
+    });
+
+  } catch (err) {
+    console.warn('Firebase init exception:', err);
+    updateSyncUI('error', '로컬 저장 모드');
+  }
+}
+
+function syncToCloud(immediate = false) {
+  if (!cloudDocRef) return;
+
+  clearTimeout(cloudSaveTimeout);
+  const delay = immediate ? 0 : 350;
+
+  updateSyncUI('saving');
+
+  cloudSaveTimeout = setTimeout(() => {
+    isApplyingCloudUpdate = true;
+    const payload = {
+      profile: state.profile,
+      pool: state.pool,
+      dailyLogs: state.dailyLogs,
+      updatedAt: new Date().toISOString()
+    };
+
+    cloudDocRef.set(payload, { merge: true })
+      .then(() => {
+        isApplyingCloudUpdate = false;
+        updateSyncUI('syncing', '실시간 동기화');
+      })
+      .catch((err) => {
+        isApplyingCloudUpdate = false;
+        console.warn('Cloud sync save error:', err);
+        updateSyncUI('error', '로컬 저장 모드');
+      });
+  }, delay);
 }
 
 // Generate realistic past 7 days trend if new
@@ -1265,4 +1416,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initCharts();
   updateKpiAndSummary();
   recalculateFormCalorie();
+  initFirebaseSync();
 });
